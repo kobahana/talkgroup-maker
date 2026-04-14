@@ -75,9 +75,8 @@ export default function WorkshopApp() {
   const createBalancedGroups = (students: string[], teachers: string[], numGroups: number): Group[] => {
     const groups: Group[] = Array.from({ length: numGroups }, () => [])
     
-    // Shuffle teachers and distribute them first
-    const shuffledTeachers = shuffleArray(teachers)
-    shuffledTeachers.forEach((teacher, index) => {
+    // Distribute teachers in order (not shuffled)
+    teachers.forEach((teacher, index) => {
       groups[index % numGroups].push({ name: teacher, isTeacher: true })
     })
 
@@ -86,7 +85,7 @@ export default function WorkshopApp() {
     let studentIndex = 0
     
     // Fill groups as evenly as possible
-    const totalPeople = shuffledTeachers.length + shuffledStudents.length
+    const totalPeople = teachers.length + shuffledStudents.length
     const baseSize = Math.floor(totalPeople / numGroups)
     const extraPeople = totalPeople % numGroups
 
@@ -128,12 +127,15 @@ export default function WorkshopApp() {
       numGroups = Math.max(1, totalGroupCount)
     }
 
+    // Shuffle teachers once for consistent placement across sets
+    const shuffledTeachers = shuffleArray(teachers)
+
     // Generate Set 1
-    const groups1 = createBalancedGroups(students, teachers, numGroups)
+    const groups1 = createBalancedGroups(students, shuffledTeachers, numGroups)
     setSet1Groups(groups1)
 
-    // Generate Set 2 with different combinations
-    const groups2 = createBalancedGroups(students, teachers, numGroups)
+    // Generate Set 2 with different combinations but same teacher positions
+    const groups2 = createBalancedGroups(students, shuffledTeachers, numGroups)
     setSet2Groups(groups2)
 
     // Reset to Set 1
@@ -151,28 +153,31 @@ export default function WorkshopApp() {
       }
       const ctx = audioContextRef.current
       
-      // Play 3 beeps
-      const playTone = (startTime: number) => {
+      // Play melody
+      const playTone = (startTime: number, frequency: number) => {
         const oscillator = ctx.createOscillator()
         const gainNode = ctx.createGain()
         
         oscillator.connect(gainNode)
         gainNode.connect(ctx.destination)
         
-        oscillator.frequency.value = 800
+        oscillator.frequency.value = frequency
         oscillator.type = "sine"
         
-        gainNode.gain.setValueAtTime(0.5, startTime)
-        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3)
+        gainNode.gain.setValueAtTime(0.3, startTime)
+        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.8)
         
         oscillator.start(startTime)
-        oscillator.stop(startTime + 0.3)
+        oscillator.stop(startTime + 0.8)
       }
 
       const now = ctx.currentTime
-      playTone(now)
-      playTone(now + 0.4)
-      playTone(now + 0.8)
+      const melody = [800, 1000, 1200]
+      for (let i = 0; i < 10; i++) {  // Repeat 10 times for ~10x longer
+        melody.forEach((freq, index) => {
+          playTone(now + i * 1.1 + index * 0.9, freq)
+        })
+      }
     } catch {
       console.log("Audio not supported")
     }
@@ -231,6 +236,36 @@ export default function WorkshopApp() {
   const currentGroups = currentSet === 1 ? set1Groups : set2Groups
   const currentTheme = currentSet === 1 ? theme1 : theme2
 
+  // Get theme font class based on length
+  const getThemeClass = (theme: string) => {
+    const len = theme.length;
+    if (len <= 5) return "text-9xl font-bold";
+    if (len <= 10) return "text-7xl font-bold";
+    if (len <= 20) return "text-5xl font-bold";
+    return "text-4xl font-bold";
+  }
+
+  // Get theme font size in rem for larger display
+  const getThemeFontSize = (theme: string) => {
+    const len = theme.length;
+    if (len <= 5) return "10rem";
+    if (len <= 10) return "8rem";
+    if (len <= 20) return "6rem";
+    if (len <= 30) return "5rem";
+    return "4rem";
+  }
+
+  // Get group font class based on total characters
+  const getGroupClass = (group: Group) => {
+    const totalChars = group.reduce((sum, person) => sum + person.name.length, 0) + `グループ ${group.length}人`.length;
+    if (totalChars <= 10) return "text-5xl";
+    if (totalChars <= 15) return "text-4xl";
+    if (totalChars <= 20) return "text-3xl";
+    if (totalChars <= 25) return "text-2xl";
+    if (totalChars <= 30) return "text-xl";
+    return "text-lg";
+  }
+
   return (
     <div className="h-screen bg-background overflow-hidden flex flex-col">
       {/* Header */}
@@ -242,25 +277,25 @@ export default function WorkshopApp() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
+      <div className="flex-1 flex gap-2 p-4 overflow-hidden">
         {/* Left Column - Settings */}
-        <div className="flex flex-col gap-4 overflow-y-auto">
+        <div className="w-80 flex flex-col gap-2 overflow-y-auto">
           {/* Participants Input */}
           <Card>
-            <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base flex items-center gap-2">
+            <CardHeader className="py-1 px-3">
+              <CardTitle className="text-sm flex items-center gap-2">
                 <GraduationCap className="h-4 w-4" />
                 参加者入力
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3">
+            <CardContent className="px-3 pb-2 space-y-2">
               <div>
                 <Label className="text-sm">学生（改行区切り）</Label>
                 <Textarea
                   value={studentsInput}
                   onChange={(e) => setStudentsInput(e.target.value)}
                   placeholder="山田太郎&#10;佐藤花子&#10;..."
-                  className="h-20 mt-1 text-sm"
+                  className="h-16 mt-1 text-xs"
                 />
               </div>
               <div>
@@ -269,7 +304,7 @@ export default function WorkshopApp() {
                   value={teachersInput}
                   onChange={(e) => setTeachersInput(e.target.value)}
                   placeholder="田中先生&#10;鈴木先生&#10;..."
-                  className="h-20 mt-1 text-sm"
+                  className="h-16 mt-1 text-xs"
                 />
               </div>
             </CardContent>
@@ -277,19 +312,19 @@ export default function WorkshopApp() {
 
           {/* Group Settings */}
           <Card>
-            <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base flex items-center gap-2">
+            <CardHeader className="py-1 px-3">
+              <CardTitle className="text-sm flex items-center gap-2">
                 <Shuffle className="h-4 w-4" />
                 グループ設定
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3">
+            <CardContent className="px-3 pb-2 space-y-2">
               <RadioGroup
                 value={groupingMode}
                 onValueChange={(v) => setGroupingMode(v as "perGroup" | "totalGroups")}
                 className="space-y-2"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 h-8">
                   <RadioGroupItem value="perGroup" id="perGroup" />
                   <Label htmlFor="perGroup" className="text-sm">1グループあたりの人数</Label>
                   <Input
@@ -297,11 +332,11 @@ export default function WorkshopApp() {
                     min={2}
                     value={groupSize}
                     onChange={(e) => setGroupSize(Number(e.target.value))}
-                    className="w-16 h-8 text-sm"
+                    className="w-16 h-7 text-sm"
                     disabled={groupingMode !== "perGroup"}
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 h-8">
                   <RadioGroupItem value="totalGroups" id="totalGroups" />
                   <Label htmlFor="totalGroups" className="text-sm">グループ数</Label>
                   <Input
@@ -309,7 +344,7 @@ export default function WorkshopApp() {
                     min={1}
                     value={totalGroupCount}
                     onChange={(e) => setTotalGroupCount(Number(e.target.value))}
-                    className="w-16 h-8 text-sm"
+                    className="w-16 h-7 text-sm"
                     disabled={groupingMode !== "totalGroups"}
                   />
                 </div>
@@ -323,13 +358,13 @@ export default function WorkshopApp() {
 
           {/* Talk Settings */}
           <Card>
-            <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base flex items-center gap-2">
+            <CardHeader className="py-1 px-3">
+              <CardTitle className="text-sm flex items-center gap-2">
                 <MessageCircle className="h-4 w-4" />
                 トーク設定
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3">
+            <CardContent className="px-3 pb-2 space-y-2">
               <div className="flex items-center gap-2">
                 <Label className="text-sm whitespace-nowrap">時間（分）</Label>
                 <Input
@@ -346,161 +381,112 @@ export default function WorkshopApp() {
               </div>
               <div>
                 <Label className="text-sm">第1セットのテーマ</Label>
-                <Input
+                <Textarea
                   value={theme1}
                   onChange={(e) => setTheme1(e.target.value)}
-                  placeholder="例: 自己紹介"
+                  placeholder="例: 自己紹介&#10;将来の夢"
                   className="mt-1 text-sm"
+                  rows={2}
                 />
               </div>
               <div>
                 <Label className="text-sm">第2セットのテーマ</Label>
-                <Input
+                <Textarea
                   value={theme2}
                   onChange={(e) => setTheme2(e.target.value)}
-                  placeholder="例: 将来の夢"
+                  placeholder="例: 好きな食べ物&#10;趣味"
                   className="mt-1 text-sm"
+                  rows={2}
                 />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Center Column - Timer & Dashboard */}
-        <div className="flex flex-col gap-4">
-          {/* Timer Card */}
-          <Card className={`flex-shrink-0 ${isFinished ? "ring-2 ring-destructive animate-pulse" : ""}`}>
-            <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  タイマー
-                </span>
-                <Badge variant={currentSet === 1 ? "default" : "secondary"}>
-                  セット {currentSet}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {/* Timer Display */}
-              <div className="text-center mb-4">
-                <div className={`text-6xl font-mono font-bold ${isFinished ? "text-destructive" : timeLeft <= 60 ? "text-orange-500" : ""}`}>
-                  {formatTime(timeLeft)}
-                </div>
-              </div>
-
-              {/* Controls */}
-              <div className="flex justify-center gap-2 flex-wrap">
-                {!isRunning ? (
-                  <Button onClick={startTimer} size="sm" className="gap-1">
-                    <Play className="h-4 w-4" />
-                    スタート
-                  </Button>
-                ) : (
-                  <Button onClick={pauseTimer} size="sm" variant="secondary" className="gap-1">
-                    <Pause className="h-4 w-4" />
-                    一時停止
-                  </Button>
-                )}
-                <Button onClick={resetTimer} size="sm" variant="outline" className="gap-1">
-                  <RotateCcw className="h-4 w-4" />
-                  リセット
-                </Button>
-                <Button 
-                  onClick={goToNextSet} 
-                  size="sm" 
-                  variant="outline"
-                  disabled={currentSet === 2}
-                  className="gap-1"
-                >
-                  <SkipForward className="h-4 w-4" />
-                  次のセット
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Current Theme */}
-          <Card className="flex-shrink-0 bg-primary text-primary-foreground">
-            <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base">現在のトークテーマ</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <p className="text-2xl font-bold text-center">
-                {currentTheme || "テーマ未設定"}
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Stats */}
-          {currentGroups.length > 0 && (
-            <Card className="flex-shrink-0">
-              <CardContent className="py-3 px-4">
-                <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                  <div>
-                    <p className="text-muted-foreground">グループ数</p>
-                    <p className="text-xl font-bold">{currentGroups.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">学生</p>
-                    <p className="text-xl font-bold">
-                      {currentGroups.reduce((sum, g) => sum + g.filter(p => !p.isTeacher).length, 0)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">先生</p>
-                    <p className="text-xl font-bold">
-                      {currentGroups.reduce((sum, g) => sum + g.filter(p => p.isTeacher).length, 0)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+        {/* Center Column - Timer & Theme */}
+        <div className="flex-1 flex flex-col">
+          {/* Timer Section */}
+          <div className="flex-[0.8] flex items-center justify-center p-4">
+            <div 
+              className={`font-mono font-bold ${isFinished ? "text-destructive" : timeLeft <= 60 ? "text-orange-500" : ""}`}
+              style={{ fontSize: "12rem", lineHeight: "1" }}
+            >
+              {formatTime(timeLeft)}
+            </div>
+          </div>
+          
+          {/* Controls Section */}
+          <div className="flex-[0.5] flex justify-center items-center gap-2 p-2">
+            {!isRunning ? (
+              <Button onClick={startTimer} size="sm" className="gap-1">
+                <Play className="h-4 w-4" />
+                スタート
+              </Button>
+            ) : (
+              <Button onClick={pauseTimer} size="sm" variant="secondary" className="gap-1">
+                <Pause className="h-4 w-4" />
+                一時停止
+              </Button>
+            )}
+            <Button onClick={resetTimer} size="sm" variant="outline" className="gap-1">
+              <RotateCcw className="h-4 w-4" />
+              リセット
+            </Button>
+            <Button 
+              onClick={goToNextSet} 
+              size="sm" 
+              variant="outline"
+              disabled={currentSet === 2}
+              className="gap-1"
+            >
+              <SkipForward className="h-4 w-4" />
+              次のセット
+            </Button>
+          </div>
+          
+          {/* Theme Section */}
+          <div className="flex-[3] flex items-center justify-center p-4 bg-primary text-primary-foreground">
+            <p style={{ fontSize: getThemeFontSize(currentTheme), whiteSpace: 'pre-wrap', textAlign: 'left', fontWeight: 'bold', lineHeight: '1.2' }}>
+              {currentTheme || "テーマ未設定"}
+            </p>
+          </div>
         </div>
 
         {/* Right Column - Groups Display */}
-        <div className="flex flex-col overflow-hidden">
+        <div className="w-[36rem] flex flex-col overflow-hidden">
           <Card className="flex-1 flex flex-col overflow-hidden">
-            <CardHeader className="py-3 px-4 flex-shrink-0">
-              <CardTitle className="text-base flex items-center gap-2">
+            <CardHeader className="py-1 px-3 flex-shrink-0">
+              <CardTitle className="text-sm flex items-center gap-2">
                 <Users className="h-4 w-4" />
                 グループ一覧（セット {currentSet}）
+                <span className="text-xs text-muted-foreground">
+                  学生: {currentGroups.reduce((sum, g) => sum + g.filter(p => !p.isTeacher).length, 0)}人 / 
+                  先生: {currentGroups.reduce((sum, g) => sum + g.filter(p => p.isTeacher).length, 0)}人
+                </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 flex-1 overflow-y-auto">
+            <CardContent className="px-2 pb-2 flex-1 overflow-hidden">
               {currentGroups.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                   参加者を入力して「グループ作成」を押してください
                 </div>
               ) : (
-                <div className="grid gap-3">
+                <div className="grid grid-cols-2 gap-1 h-full">
                   {currentGroups.map((group, groupIndex) => (
                     <div
                       key={groupIndex}
-                      className="border rounded-lg p-3 bg-card"
+                      className={`border rounded p-1 bg-card flex flex-col justify-center items-center text-center ${getGroupClass(group)}`}
                     >
-                      <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                        <span className="bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center text-xs">
-                          {groupIndex + 1}
-                        </span>
-                        グループ {groupIndex + 1}
-                        <span className="text-muted-foreground font-normal">
-                          ({group.length}人)
-                        </span>
+                      <h3 className="font-bold mb-1 text-lg">
+                        グループ {groupIndex + 1} ({group.length}人)
                       </h3>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap justify-center gap-0.5">
                         {group.map((person, personIndex) => (
                           <Badge
                             key={personIndex}
                             variant={person.isTeacher ? "default" : "secondary"}
-                            className="flex items-center gap-1 text-xs"
+                            className="flex items-center gap-1 text-3xl"
                           >
-                            {person.isTeacher ? (
-                              <GraduationCap className="h-3 w-3" />
-                            ) : (
-                              <Users className="h-3 w-3" />
-                            )}
                             {person.name}
                           </Badge>
                         ))}
