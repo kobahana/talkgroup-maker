@@ -19,7 +19,7 @@ type Group = Person[]
 export default function WorkshopApp() {
   const [studentsInput, setStudentsInput] = useState("")
   const [teachersInput, setTeachersInput] = useState("")
-  const [groupingMode, setGroupingMode] = useState<"perGroup" | "totalGroups">("perGroup")
+  const [groupingMode, setGroupingMode] = useState<"perGroup" | "totalGroups">("totalGroups")
   const [groupSize, setGroupSize] = useState(4)
   const [totalGroupCount, setTotalGroupCount] = useState(3)
   const [numSets, setNumSets] = useState(2)
@@ -388,16 +388,16 @@ export default function WorkshopApp() {
               <CardContent className="px-3 pb-2 space-y-2">
                 <RadioGroup value={groupingMode} onValueChange={v => setGroupingMode(v as "perGroup" | "totalGroups")} className="space-y-2">
                   <div className="flex items-center gap-2 h-8">
-                    <RadioGroupItem value="perGroup" id="perGroup" />
-                    <Label htmlFor="perGroup" className="text-sm">1グループあたりの人数</Label>
-                    <Input type="number" min={2} value={groupSize} onChange={e => setGroupSize(Number(e.target.value))}
-                      className="w-16 h-7 text-sm" disabled={groupingMode !== "perGroup"} />
-                  </div>
-                  <div className="flex items-center gap-2 h-8">
                     <RadioGroupItem value="totalGroups" id="totalGroups" />
                     <Label htmlFor="totalGroups" className="text-sm">グループ数</Label>
                     <Input type="number" min={1} value={totalGroupCount} onChange={e => setTotalGroupCount(Number(e.target.value))}
                       className="w-16 h-7 text-sm" disabled={groupingMode !== "totalGroups"} />
+                  </div>
+                  <div className="flex items-center gap-2 h-8">
+                    <RadioGroupItem value="perGroup" id="perGroup" />
+                    <Label htmlFor="perGroup" className="text-sm">1グループあたりの人数</Label>
+                    <Input type="number" min={2} value={groupSize} onChange={e => setGroupSize(Number(e.target.value))}
+                      className="w-16 h-7 text-sm" disabled={groupingMode !== "perGroup"} />
                   </div>
                 </RadioGroup>
                 <Button onClick={generateGroups} className="w-full">
