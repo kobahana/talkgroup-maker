@@ -114,34 +114,71 @@ export default function WorkshopApp() {
       : Math.max(1, totalGroupCount)
 
     const shuffledTeachers = shuffleArray(teachers)
-    const shuffledStudents = shuffleArray(students)
+    const T = numGroups
+    const N = students.length
 
     // 先生がいない or グループが1つの場合はランダム生成
-    if (teachers.length === 0 || numGroups <= 1) {
+    if (teachers.length === 0 || T <= 1) {
       setAllSetsGroups(Array.from({ length: numSets }, () =>
-        createBalancedGroups(shuffledStudents, shuffledTeachers, numGroups)
+        createBalancedGroups(shuffleArray(students), shuffledTeachers, T)
       ))
       setCurrentSet(1); setTimeLeft(talkTime * 60); setIsRunning(false); setIsFinished(false)
       return
     }
 
-    // ラウンドロビン方式:
-    // 学生を numGroups 個の「ポッド」に均等分割（ランダム順）
-    // セット i では: ポッド[j] → グループ[(j + i) % numGroups] へ
-    // → numGroups セット回せば全学生が全先生のテーブルを一巡する
-    const pods: string[][] = Array.from({ length: numGroups }, () => [])
-    shuffledStudents.forEach((s, i) => pods[i % numGroups].push(s))
+    // 各学生が訪問済みの先生インデックスを追跡
+    const visited: Set<number>[] = Array.from({ length: N }, () => new Set())
 
     const sets: Group[][] = []
+
     for (let setIdx = 0; setIdx < numSets; setIdx++) {
-      const groups: Group[] = Array.from({ length: numGroups }, () => [])
+      const groups: Group[] = Array.from({ length: T }, () => [])
       // 先生を固定位置に配置
-      shuffledTeachers.forEach((t, i) => groups[i % numGroups].push({ name: t, isTeacher: true }))
-      // ポッドをローテーション
-      pods.forEach((pod, j) => {
-        const dest = (j + setIdx) % numGroups
-        pod.forEach(s => groups[dest].push({ name: s, isTeacher: false }))
-      })
+      shuffledTeachers.forEach((t, i) => groups[i % T].push({ name: t, isTeacher: true }))
+
+      // 各グループの目標学生数（均等配分）
+      const targets = Array.from({ length: T }, (_, i) =>
+        Math.floor(N / T) + (i < N % T ? 1 : 0)
+      )
+      const counts = Array(T).fill(0)
+      const assigned = Array(N).fill(-1)
+
+      // ★ 毎セット処理順をランダムに → 学生の組み合わせが毎回変わる
+      const order = shuffleArray(Array.from({ length: N }, (_, i) => i))
+
+      // 第1パス: 未訪問の先生テーブルで空きがある場所に個別割り振り
+      for (const si of order) {
+        // 未訪問かつ目標人数に達していないグループを候補にする
+        const candidates = Array.from({ length: T }, (_, t) => t)
+          .filter(t => !visited[si].has(t) && counts[t] < targets[t])
+
+        if (candidates.length > 0) {
+          // 最も人数が少ないグループ群の中からランダム選択（バランス + ランダム性）
+          const minLoad = Math.min(...candidates.map(t => counts[t]))
+          const pool = candidates.filter(t => counts[t] === minLoad)
+          const chosen = pool[Math.floor(Math.random() * pool.length)]
+          assigned[si] = chosen
+          counts[chosen]++
+          visited[si].add(chosen)
+        }
+      }
+
+      // 第2パス: 未割り当て学生を最も空いているグループへ（全先生訪問済み等の場合）
+      for (let si = 0; si < N; si++) {
+        if (assigned[si] === -1) {
+          const t = Array.from({ length: T }, (_, i) => i)
+            .sort((a, b) => counts[a] - counts[b])[0]
+          assigned[si] = t
+          counts[t]++
+          visited[si].add(t)
+        }
+      }
+
+      // グループへ学生を追加
+      for (let si = 0; si < N; si++) {
+        groups[assigned[si]].push({ name: students[si], isTeacher: false })
+      }
+
       sets.push(groups)
     }
 
