@@ -32,6 +32,7 @@ export default function WorkshopApp() {
   const [isFinished, setIsFinished] = useState(false)
   const [isPresentationMode, setIsPresentationMode] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isDirty, setIsDirty] = useState(false) // グループ設定変更後に再生成が必要かどうか
   const audioContextRef = useRef<AudioContext | null>(null)
 
   // Fullscreen tracking
@@ -214,6 +215,7 @@ export default function WorkshopApp() {
 
     setAllSetsGroups(sets)
     setCurrentSet(1); setTimeLeft(talkTime * 60); setIsRunning(false); setIsFinished(false)
+    setIsDirty(false)
   }
 
   const playBeep = useCallback(() => {
@@ -386,22 +388,33 @@ export default function WorkshopApp() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-3 pb-2 space-y-2">
-                <RadioGroup value={groupingMode} onValueChange={v => setGroupingMode(v as "perGroup" | "totalGroups")} className="space-y-2">
+                <RadioGroup value={groupingMode} onValueChange={v => { setGroupingMode(v as "perGroup" | "totalGroups"); setIsDirty(true) }} className="space-y-2">
                   <div className="flex items-center gap-2 h-8">
                     <RadioGroupItem value="totalGroups" id="totalGroups" />
                     <Label htmlFor="totalGroups" className="text-sm">グループ数</Label>
-                    <Input type="number" min={1} value={totalGroupCount} onChange={e => setTotalGroupCount(Number(e.target.value))}
+                    <Input type="number" min={1} value={totalGroupCount} onChange={e => { setTotalGroupCount(Number(e.target.value)); setIsDirty(true) }}
                       className="w-16 h-7 text-sm" disabled={groupingMode !== "totalGroups"} />
                   </div>
                   <div className="flex items-center gap-2 h-8">
                     <RadioGroupItem value="perGroup" id="perGroup" />
                     <Label htmlFor="perGroup" className="text-sm">1グループあたりの人数</Label>
-                    <Input type="number" min={2} value={groupSize} onChange={e => setGroupSize(Number(e.target.value))}
+                    <Input type="number" min={2} value={groupSize} onChange={e => { setGroupSize(Number(e.target.value)); setIsDirty(true) }}
                       className="w-16 h-7 text-sm" disabled={groupingMode !== "perGroup"} />
                   </div>
                 </RadioGroup>
-                <Button onClick={generateGroups} className="w-full">
-                  <Shuffle className="h-4 w-4 mr-2" />グループ作成
+                {/* セット数を2グループ設定カードに移動 */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">セット数</Label>
+                  <Input type="number" min={1} max={10} value={numSets}
+                    onChange={e => { setNumSets(Math.max(1, Math.min(10, Number(e.target.value)))); setIsDirty(true) }}
+                    className="w-20 h-8 text-sm" />
+                </div>
+                <Button
+                  onClick={generateGroups}
+                  className={`w-full ${isDirty ? "animate-pulse bg-orange-500 hover:bg-orange-600" : ""}`}
+                >
+                  <Shuffle className="h-4 w-4 mr-2" />
+                  {isDirty && allSetsGroups.length > 0 ? "⚠️ 再生成が必要です" : "グループ作成"}
                 </Button>
               </CardContent>
             </Card>
@@ -417,12 +430,6 @@ export default function WorkshopApp() {
                   <Label className="text-sm whitespace-nowrap">時間（分）</Label>
                   <Input type="number" min={1} value={talkTime}
                     onChange={e => { const v = Number(e.target.value); setTalkTime(v); if (!isRunning) setTimeLeft(v * 60) }}
-                    className="w-20 h-8 text-sm" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm whitespace-nowrap">セット数</Label>
-                  <Input type="number" min={1} max={10} value={numSets}
-                    onChange={e => setNumSets(Math.max(1, Math.min(10, Number(e.target.value))))}
                     className="w-20 h-8 text-sm" />
                 </div>
                 {themes.map((theme, i) => (
