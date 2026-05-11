@@ -183,7 +183,8 @@ export default function WorkshopApp() {
   }
 
   const timerColorClass = isFinished ? "text-red-500" : timeLeft <= 60 ? "text-orange-500" : ""
-  const timerFontSize = isPresentationMode ? "14rem" : "12rem"
+  // clamp: 最小4rem、ビューポート幅の11%、最大13rem でタイマーが列に収まるようにスケール
+  const timerFontSize = "clamp(4rem, 11vw, 13rem)"
 
   return (
     <div className="h-screen bg-background overflow-hidden flex flex-col">
@@ -322,7 +323,7 @@ export default function WorkshopApp() {
         )}
 
         {/* Center Column — タイマー・コントロール・テーマ */}
-        <div className={`${isPresentationMode ? "w-72 flex-shrink-0" : "flex-1"} flex flex-col`}>
+        <div className="flex-1 flex flex-col min-w-0">
           {/* タイマー */}
           <div className="flex-[0.9] flex items-center justify-center">
             <div
