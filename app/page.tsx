@@ -8,460 +8,373 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Badge } from "@/components/ui/badge"
-import { 
-  Users, 
-  GraduationCap, 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  SkipForward, 
-  Clock, 
-  Shuffle,
-  MessageCircle
+import {
+  Users, GraduationCap, Play, Pause, RotateCcw, SkipForward,
+  Shuffle, MessageCircle, Maximize2, Minimize2, Monitor, Settings
 } from "lucide-react"
 
-type Person = {
-  name: string
-  isTeacher: boolean
-}
-
+type Person = { name: string; isTeacher: boolean }
 type Group = Person[]
 
 export default function WorkshopApp() {
-  // Input state
   const [studentsInput, setStudentsInput] = useState("")
   const [teachersInput, setTeachersInput] = useState("")
   const [groupingMode, setGroupingMode] = useState<"perGroup" | "totalGroups">("perGroup")
   const [groupSize, setGroupSize] = useState(4)
   const [totalGroupCount, setTotalGroupCount] = useState(3)
-
-  // Theme and time settings
+  const [numSets, setNumSets] = useState(2)
   const [talkTime, setTalkTime] = useState(15)
-  const [theme1, setTheme1] = useState("")
-  const [theme2, setTheme2] = useState("")
-
-  // Groups state
-  const [set1Groups, setSet1Groups] = useState<Group[]>([])
-  const [set2Groups, setSet2Groups] = useState<Group[]>([])
+  const [themes, setThemes] = useState<string[]>(["", ""])
+  const [allSetsGroups, setAllSetsGroups] = useState<Group[][]>([])
   const [currentSet, setCurrentSet] = useState(1)
-
-  // Timer state
   const [timeLeft, setTimeLeft] = useState(15 * 60)
   const [isRunning, setIsRunning] = useState(false)
   const [isFinished, setIsFinished] = useState(false)
-
-  // Audio context ref
+  const [isPresentationMode, setIsPresentationMode] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const audioContextRef = useRef<AudioContext | null>(null)
 
-  // Parse input names
-  const parseNames = (input: string): string[] => {
-    return input
-      .split("\n")
-      .map((name) => name.trim())
-      .filter((name) => name.length > 0)
-  }
+  // Fullscreen tracking
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener("fullscreenchange", handler)
+    return () => document.removeEventListener("fullscreenchange", handler)
+  }, [])
 
-  // Shuffle array helper
-  const shuffleArray = <T,>(array: T[]): T[] => {
-    const shuffled = [...array]
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-    }
-    return shuffled
-  }
-
-  // Create groups with balanced teacher distribution
-  const createBalancedGroups = (students: string[], teachers: string[], numGroups: number): Group[] => {
-    const groups: Group[] = Array.from({ length: numGroups }, () => [])
-    
-    // Distribute teachers in order (not shuffled)
-    teachers.forEach((teacher, index) => {
-      groups[index % numGroups].push({ name: teacher, isTeacher: true })
-    })
-
-    // Shuffle students and distribute them
-    const shuffledStudents = shuffleArray(students)
-    let studentIndex = 0
-    
-    // Fill groups as evenly as possible
-    const totalPeople = teachers.length + shuffledStudents.length
-    const baseSize = Math.floor(totalPeople / numGroups)
-    const extraPeople = totalPeople % numGroups
-
-    for (let i = 0; i < numGroups && studentIndex < shuffledStudents.length; i++) {
-      const currentGroupSize = groups[i].length
-      const targetSize = baseSize + (i < extraPeople ? 1 : 0)
-      const studentsNeeded = targetSize - currentGroupSize
-
-      for (let j = 0; j < studentsNeeded && studentIndex < shuffledStudents.length; j++) {
-        groups[i].push({ name: shuffledStudents[studentIndex], isTeacher: false })
-        studentIndex++
+  // Keyboard shortcuts (Space=再生/停止, →=次セット, R=リセット)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === "INPUT" || tag === "TEXTAREA") return
+      if (e.code === "Space") {
+        e.preventDefault()
+        setIsRunning(prev => (timeLeft > 0 ? !prev : prev))
+      }
+      if (e.code === "ArrowRight") {
+        if (currentSet < numSets && allSetsGroups.length > 0) {
+          setCurrentSet(s => s + 1); setTimeLeft(talkTime * 60)
+          setIsRunning(false); setIsFinished(false)
+        }
+      }
+      if (e.code === "KeyR") {
+        setIsRunning(false); setTimeLeft(talkTime * 60); setIsFinished(false)
       }
     }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [timeLeft, currentSet, numSets, allSetsGroups.length, talkTime])
 
-    // Distribute any remaining students
-    while (studentIndex < shuffledStudents.length) {
-      const smallestGroup = groups.reduce((min, group, idx) => 
-        group.length < groups[min].length ? idx : min
-      , 0)
-      groups[smallestGroup].push({ name: shuffledStudents[studentIndex], isTeacher: false })
-      studentIndex++
+  // numSets 変更時にテーマ配列を調整
+  useEffect(() => {
+    setThemes(prev => {
+      const next = [...prev]
+      while (next.length < numSets) next.push("")
+      return next.slice(0, numSets)
+    })
+  }, [numSets])
+
+  const parseNames = (input: string) =>
+    input.split("\n").map(n => n.trim()).filter(n => n.length > 0)
+
+  const shuffleArray = <T,>(arr: T[]): T[] => {
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]]
     }
+    return a
+  }
 
+  const createBalancedGroups = (students: string[], teachers: string[], numGroups: number): Group[] => {
+    const groups: Group[] = Array.from({ length: numGroups }, () => [])
+    teachers.forEach((t, i) => groups[i % numGroups].push({ name: t, isTeacher: true }))
+    const shuffled = shuffleArray(students)
+    const total = teachers.length + shuffled.length
+    const base = Math.floor(total / numGroups)
+    const extra = total % numGroups
+    let si = 0
+    for (let i = 0; i < numGroups && si < shuffled.length; i++) {
+      const need = base + (i < extra ? 1 : 0) - groups[i].length
+      for (let j = 0; j < need && si < shuffled.length; j++)
+        groups[i].push({ name: shuffled[si++], isTeacher: false })
+    }
+    while (si < shuffled.length) {
+      const min = groups.reduce((m, g, i) => g.length < groups[m].length ? i : m, 0)
+      groups[min].push({ name: shuffled[si++], isTeacher: false })
+    }
     return groups
   }
 
-  // Generate both sets of groups
   const generateGroups = () => {
     const students = parseNames(studentsInput)
     const teachers = parseNames(teachersInput)
-    const totalPeople = students.length + teachers.length
-
-    if (totalPeople === 0) return
-
-    let numGroups: number
-    if (groupingMode === "perGroup") {
-      numGroups = Math.max(1, Math.ceil(totalPeople / groupSize))
-    } else {
-      numGroups = Math.max(1, totalGroupCount)
-    }
-
-    // Shuffle teachers once for consistent placement across sets
+    if (students.length + teachers.length === 0) return
+    const numGroups = groupingMode === "perGroup"
+      ? Math.max(1, Math.ceil((students.length + teachers.length) / groupSize))
+      : Math.max(1, totalGroupCount)
     const shuffledTeachers = shuffleArray(teachers)
-
-    // Generate Set 1
-    const groups1 = createBalancedGroups(students, shuffledTeachers, numGroups)
-    setSet1Groups(groups1)
-
-    // Generate Set 2 with different combinations but same teacher positions
-    const groups2 = createBalancedGroups(students, shuffledTeachers, numGroups)
-    setSet2Groups(groups2)
-
-    // Reset to Set 1
-    setCurrentSet(1)
-    setTimeLeft(talkTime * 60)
-    setIsRunning(false)
-    setIsFinished(false)
+    setAllSetsGroups(Array.from({ length: numSets }, () => createBalancedGroups(students, shuffledTeachers, numGroups)))
+    setCurrentSet(1); setTimeLeft(talkTime * 60); setIsRunning(false); setIsFinished(false)
   }
 
-  // Play beep sound
   const playBeep = useCallback(() => {
     try {
-      if (!audioContextRef.current) {
+      if (!audioContextRef.current)
         audioContextRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-      }
       const ctx = audioContextRef.current
-      
-      // Play melody
-      const playTone = (startTime: number, frequency: number) => {
-        const oscillator = ctx.createOscillator()
-        const gainNode = ctx.createGain()
-        
-        oscillator.connect(gainNode)
-        gainNode.connect(ctx.destination)
-        
-        oscillator.frequency.value = frequency
-        oscillator.type = "sine"
-        
-        gainNode.gain.setValueAtTime(0.3, startTime)
-        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.8)
-        
-        oscillator.start(startTime)
-        oscillator.stop(startTime + 0.8)
+      const playTone = (t: number, f: number) => {
+        const osc = ctx.createOscillator(), g = ctx.createGain()
+        osc.connect(g); g.connect(ctx.destination)
+        osc.frequency.value = f; osc.type = "sine"
+        g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.8)
+        osc.start(t); osc.stop(t + 0.8)
       }
-
       const now = ctx.currentTime
-      const melody = [800, 1000, 1200]
-      for (let i = 0; i < 10; i++) {  // Repeat 10 times for ~10x longer
-        melody.forEach((freq, index) => {
-          playTone(now + i * 1.1 + index * 0.9, freq)
-        })
-      }
-    } catch {
-      console.log("Audio not supported")
-    }
+      for (let i = 0; i < 10; i++)
+        [800, 1000, 1200].forEach((f, j) => playTone(now + i * 1.1 + j * 0.9, f))
+    } catch { console.log("Audio not supported") }
   }, [])
 
-  // Timer effect
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null
-
-    if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            setIsRunning(false)
-            setIsFinished(true)
-            playBeep()
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-    }
-
-    return () => {
-      if (interval) clearInterval(interval)
-    }
+    if (!isRunning || timeLeft <= 0) return
+    const id = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) { setIsRunning(false); setIsFinished(true); playBeep(); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
   }, [isRunning, timeLeft, playBeep])
 
-  // Format time
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`
+
+  const goToSet = (n: number) => {
+    setCurrentSet(n); setTimeLeft(talkTime * 60); setIsRunning(false); setIsFinished(false)
   }
 
-  // Timer controls
-  const startTimer = () => {
-    if (timeLeft > 0) setIsRunning(true)
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen()
+    else await document.exitFullscreen()
   }
-  const pauseTimer = () => setIsRunning(false)
-  const resetTimer = () => {
-    setIsRunning(false)
-    setTimeLeft(talkTime * 60)
-    setIsFinished(false)
+
+  const currentGroups = allSetsGroups[currentSet - 1] ?? []
+  const currentTheme = themes[currentSet - 1] ?? ""
+
+  const getThemeFontSize = (t: string) => {
+    const l = t.length
+    if (l <= 5) return "10rem"; if (l <= 10) return "8rem"
+    if (l <= 20) return "6rem"; if (l <= 30) return "5rem"; return "4rem"
   }
-  const goToNextSet = () => {
-    if (currentSet === 1) {
-      setCurrentSet(2)
-      setTimeLeft(talkTime * 60)
-      setIsRunning(false)
-      setIsFinished(false)
+
+  const getGroupHeaderSize = () => isPresentationMode ? "text-2xl" : "text-lg"
+
+  const getBadgeSize = () => isPresentationMode ? "text-4xl py-2 px-3" : "text-3xl"
+
+  const getGroupCardClass = (group: Group) => {
+    const chars = group.reduce((s, p) => s + p.name.length, 0)
+    if (isPresentationMode) {
+      if (chars <= 8) return "text-5xl"; if (chars <= 12) return "text-4xl"
+      if (chars <= 16) return "text-3xl"; return "text-2xl"
     }
+    if (chars <= 10) return "text-4xl"; if (chars <= 15) return "text-3xl"
+    if (chars <= 20) return "text-2xl"; if (chars <= 25) return "text-xl"
+    return "text-lg"
   }
 
-  // Current groups and theme
-  const currentGroups = currentSet === 1 ? set1Groups : set2Groups
-  const currentTheme = currentSet === 1 ? theme1 : theme2
-
-  // Get theme font class based on length
-  const getThemeClass = (theme: string) => {
-    const len = theme.length;
-    if (len <= 5) return "text-9xl font-bold";
-    if (len <= 10) return "text-7xl font-bold";
-    if (len <= 20) return "text-5xl font-bold";
-    return "text-4xl font-bold";
-  }
-
-  // Get theme font size in rem for larger display
-  const getThemeFontSize = (theme: string) => {
-    const len = theme.length;
-    if (len <= 5) return "10rem";
-    if (len <= 10) return "8rem";
-    if (len <= 20) return "6rem";
-    if (len <= 30) return "5rem";
-    return "4rem";
-  }
-
-  // Get group font class based on total characters
-  const getGroupClass = (group: Group) => {
-    const totalChars = group.reduce((sum, person) => sum + person.name.length, 0) + `グループ ${group.length}人`.length;
-    if (totalChars <= 10) return "text-5xl";
-    if (totalChars <= 15) return "text-4xl";
-    if (totalChars <= 20) return "text-3xl";
-    if (totalChars <= 25) return "text-2xl";
-    if (totalChars <= 30) return "text-xl";
-    return "text-lg";
-  }
+  const timerColorClass = isFinished ? "text-red-500" : timeLeft <= 60 ? "text-orange-500" : ""
+  const timerFontSize = isPresentationMode ? "14rem" : "12rem"
 
   return (
     <div className="h-screen bg-background overflow-hidden flex flex-col">
       {/* Header */}
-      <header className="flex-shrink-0 border-b bg-card px-4 py-3">
-        <div className="flex items-center gap-2">
+      <header className="flex-shrink-0 border-b bg-card px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-3">
           <Users className="h-6 w-6 text-primary" />
           <h1 className="text-xl font-bold">ワークショップ進行アプリ</h1>
+          {/* セット進捗ドット */}
+          {allSetsGroups.length > 0 && (
+            <div className="flex items-center gap-1.5 ml-4">
+              {Array.from({ length: numSets }, (_, i) => (
+                <button
+                  key={i}
+                  onClick={() => goToSet(i + 1)}
+                  title={`セット ${i + 1}${themes[i] ? `: ${themes[i]}` : ""}`}
+                  className={`rounded-full transition-all duration-300 ${i + 1 === currentSet
+                    ? "bg-primary w-7 h-3.5"
+                    : i + 1 < currentSet
+                      ? "bg-primary/50 w-3 h-3"
+                      : "bg-muted-foreground/30 w-3 h-3"
+                    }`}
+                />
+              ))}
+              <span className="text-xs text-muted-foreground ml-1">
+                {currentSet} / {numSets}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* キーボードショートカットヒント */}
+          {isPresentationMode && (
+            <span className="text-xs text-muted-foreground mr-2 hidden md:block">
+              スペース: 再生/停止　→: 次セット　R: リセット
+            </span>
+          )}
+          <Button
+            variant={isPresentationMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => setIsPresentationMode(v => !v)}
+            className="gap-1"
+          >
+            {isPresentationMode ? <Settings className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+            {isPresentationMode ? "設定" : "授業モード"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={toggleFullscreen} className="gap-1">
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
         </div>
       </header>
 
       {/* Main Content */}
       <div className="flex-1 flex gap-2 p-4 overflow-hidden">
-        {/* Left Column - Settings */}
-        <div className="w-80 flex flex-col gap-2 overflow-y-auto">
-          {/* Participants Input */}
-          <Card>
-            <CardHeader className="py-1 px-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <GraduationCap className="h-4 w-4" />
-                参加者入力
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-2 space-y-2">
-              <div>
-                <Label className="text-sm">学生（改行区切り）</Label>
-                <Textarea
-                  value={studentsInput}
-                  onChange={(e) => setStudentsInput(e.target.value)}
-                  placeholder="山田太郎&#10;佐藤花子&#10;..."
-                  className="h-16 mt-1 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-sm">先生（改行区切り）</Label>
-                <Textarea
-                  value={teachersInput}
-                  onChange={(e) => setTeachersInput(e.target.value)}
-                  placeholder="田中先生&#10;鈴木先生&#10;..."
-                  className="h-16 mt-1 text-xs"
-                />
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Group Settings */}
-          <Card>
-            <CardHeader className="py-1 px-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Shuffle className="h-4 w-4" />
-                グループ設定
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-2 space-y-2">
-              <RadioGroup
-                value={groupingMode}
-                onValueChange={(v) => setGroupingMode(v as "perGroup" | "totalGroups")}
-                className="space-y-2"
-              >
-                <div className="flex items-center gap-2 h-8">
-                  <RadioGroupItem value="perGroup" id="perGroup" />
-                  <Label htmlFor="perGroup" className="text-sm">1グループあたりの人数</Label>
-                  <Input
-                    type="number"
-                    min={2}
-                    value={groupSize}
-                    onChange={(e) => setGroupSize(Number(e.target.value))}
-                    className="w-16 h-7 text-sm"
-                    disabled={groupingMode !== "perGroup"}
-                  />
+        {/* Left Column — 授業モードでは非表示 */}
+        {!isPresentationMode && (
+          <div className="w-80 flex-shrink-0 flex flex-col gap-2 overflow-y-auto">
+            <Card>
+              <CardHeader className="py-1 px-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <GraduationCap className="h-4 w-4" />参加者入力
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 pb-2 space-y-2">
+                <div>
+                  <Label className="text-sm">学生（改行区切り）</Label>
+                  <Textarea value={studentsInput} onChange={e => setStudentsInput(e.target.value)}
+                    placeholder={"山田太郎\n佐藤花子\n..."} className="h-16 mt-1 text-xs" />
                 </div>
-                <div className="flex items-center gap-2 h-8">
-                  <RadioGroupItem value="totalGroups" id="totalGroups" />
-                  <Label htmlFor="totalGroups" className="text-sm">グループ数</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={totalGroupCount}
-                    onChange={(e) => setTotalGroupCount(Number(e.target.value))}
-                    className="w-16 h-7 text-sm"
-                    disabled={groupingMode !== "totalGroups"}
-                  />
+                <div>
+                  <Label className="text-sm">先生（改行区切り）</Label>
+                  <Textarea value={teachersInput} onChange={e => setTeachersInput(e.target.value)}
+                    placeholder={"田中先生\n鈴木先生\n..."} className="h-16 mt-1 text-xs" />
                 </div>
-              </RadioGroup>
-              <Button onClick={generateGroups} className="w-full">
-                <Shuffle className="h-4 w-4 mr-2" />
-                グループ作成
-              </Button>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          {/* Talk Settings */}
-          <Card>
-            <CardHeader className="py-1 px-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <MessageCircle className="h-4 w-4" />
-                トーク設定
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-2 space-y-2">
-              <div className="flex items-center gap-2">
-                <Label className="text-sm whitespace-nowrap">時間（分）</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={talkTime}
-                  onChange={(e) => {
-                    const val = Number(e.target.value)
-                    setTalkTime(val)
-                    if (!isRunning) setTimeLeft(val * 60)
-                  }}
-                  className="w-20 h-8 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-sm">第1セットのテーマ</Label>
-                <Textarea
-                  value={theme1}
-                  onChange={(e) => setTheme1(e.target.value)}
-                  placeholder="例: 自己紹介&#10;将来の夢"
-                  className="mt-1 text-sm"
-                  rows={2}
-                />
-              </div>
-              <div>
-                <Label className="text-sm">第2セットのテーマ</Label>
-                <Textarea
-                  value={theme2}
-                  onChange={(e) => setTheme2(e.target.value)}
-                  placeholder="例: 好きな食べ物&#10;趣味"
-                  className="mt-1 text-sm"
-                  rows={2}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            <Card>
+              <CardHeader className="py-1 px-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Shuffle className="h-4 w-4" />グループ設定
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 pb-2 space-y-2">
+                <RadioGroup value={groupingMode} onValueChange={v => setGroupingMode(v as "perGroup" | "totalGroups")} className="space-y-2">
+                  <div className="flex items-center gap-2 h-8">
+                    <RadioGroupItem value="perGroup" id="perGroup" />
+                    <Label htmlFor="perGroup" className="text-sm">1グループあたりの人数</Label>
+                    <Input type="number" min={2} value={groupSize} onChange={e => setGroupSize(Number(e.target.value))}
+                      className="w-16 h-7 text-sm" disabled={groupingMode !== "perGroup"} />
+                  </div>
+                  <div className="flex items-center gap-2 h-8">
+                    <RadioGroupItem value="totalGroups" id="totalGroups" />
+                    <Label htmlFor="totalGroups" className="text-sm">グループ数</Label>
+                    <Input type="number" min={1} value={totalGroupCount} onChange={e => setTotalGroupCount(Number(e.target.value))}
+                      className="w-16 h-7 text-sm" disabled={groupingMode !== "totalGroups"} />
+                  </div>
+                </RadioGroup>
+                <Button onClick={generateGroups} className="w-full">
+                  <Shuffle className="h-4 w-4 mr-2" />グループ作成
+                </Button>
+              </CardContent>
+            </Card>
 
-        {/* Center Column - Timer & Theme */}
-        <div className="flex-1 flex flex-col">
-          {/* Timer Section */}
-          <div className="flex-[0.8] flex items-center justify-center p-4">
-            <div 
-              className={`font-mono font-bold ${isFinished ? "text-destructive" : timeLeft <= 60 ? "text-orange-500" : ""}`}
-              style={{ fontSize: "12rem", lineHeight: "1" }}
+            <Card>
+              <CardHeader className="py-1 px-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4" />トーク設定
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 pb-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">時間（分）</Label>
+                  <Input type="number" min={1} value={talkTime}
+                    onChange={e => { const v = Number(e.target.value); setTalkTime(v); if (!isRunning) setTimeLeft(v * 60) }}
+                    className="w-20 h-8 text-sm" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">セット数</Label>
+                  <Input type="number" min={1} max={10} value={numSets}
+                    onChange={e => setNumSets(Math.max(1, Math.min(10, Number(e.target.value))))}
+                    className="w-20 h-8 text-sm" />
+                </div>
+                {themes.map((theme, i) => (
+                  <div key={i}>
+                    <Label className="text-sm">第{i + 1}セットのテーマ</Label>
+                    <Textarea value={theme}
+                      onChange={e => { const next = [...themes]; next[i] = e.target.value; setThemes(next) }}
+                      placeholder={`例: テーマ${i + 1}`} className="mt-1 text-sm" rows={2} />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Center Column — タイマー・コントロール・テーマ */}
+        <div className={`${isPresentationMode ? "w-72 flex-shrink-0" : "flex-1"} flex flex-col`}>
+          {/* タイマー */}
+          <div className="flex-[0.9] flex items-center justify-center">
+            <div
+              className={`font-mono font-bold transition-colors duration-500 ${timerColorClass}`}
+              style={{ fontSize: timerFontSize, lineHeight: 1 }}
             >
               {formatTime(timeLeft)}
             </div>
           </div>
-          
-          {/* Controls Section */}
-          <div className="flex-[0.5] flex justify-center items-center gap-2 p-2">
+
+          {/* コントロール */}
+          <div className="flex-shrink-0 flex justify-center items-center gap-2 py-2">
             {!isRunning ? (
-              <Button onClick={startTimer} size="sm" className="gap-1">
-                <Play className="h-4 w-4" />
-                スタート
+              <Button onClick={() => { if (timeLeft > 0) setIsRunning(true) }}
+                size={isPresentationMode ? "default" : "sm"} className="gap-1">
+                <Play className="h-4 w-4" />スタート
               </Button>
             ) : (
-              <Button onClick={pauseTimer} size="sm" variant="secondary" className="gap-1">
-                <Pause className="h-4 w-4" />
-                一時停止
+              <Button onClick={() => setIsRunning(false)}
+                size={isPresentationMode ? "default" : "sm"} variant="secondary" className="gap-1">
+                <Pause className="h-4 w-4" />一時停止
               </Button>
             )}
-            <Button onClick={resetTimer} size="sm" variant="outline" className="gap-1">
-              <RotateCcw className="h-4 w-4" />
-              リセット
+            <Button onClick={() => { setIsRunning(false); setTimeLeft(talkTime * 60); setIsFinished(false) }}
+              size={isPresentationMode ? "default" : "sm"} variant="outline" className="gap-1">
+              <RotateCcw className="h-4 w-4" />リセット
             </Button>
-            <Button 
-              onClick={goToNextSet} 
-              size="sm" 
-              variant="outline"
-              disabled={currentSet === 2}
-              className="gap-1"
-            >
-              <SkipForward className="h-4 w-4" />
-              次のセット
+            <Button onClick={() => { if (currentSet < numSets) goToSet(currentSet + 1) }}
+              size={isPresentationMode ? "default" : "sm"} variant="outline"
+              disabled={currentSet >= numSets} className="gap-1">
+              <SkipForward className="h-4 w-4" />次のセット
             </Button>
           </div>
-          
-          {/* Theme Section */}
-          <div className="flex-[3] flex items-center justify-center p-4 bg-primary text-primary-foreground">
-            <p style={{ fontSize: getThemeFontSize(currentTheme), whiteSpace: 'pre-wrap', textAlign: 'left', fontWeight: 'bold', lineHeight: '1.2' }}>
+
+          {/* テーマ表示 */}
+          <div className="flex-[2.5] flex items-center justify-center p-4 bg-primary text-primary-foreground rounded-lg">
+            <p style={{ fontSize: getThemeFontSize(currentTheme), whiteSpace: "pre-wrap", fontWeight: "bold", lineHeight: 1.2, textAlign: "center" }}>
               {currentTheme || "テーマ未設定"}
             </p>
           </div>
         </div>
 
-        {/* Right Column - Groups Display */}
-        <div className="w-[36rem] flex flex-col overflow-hidden">
+        {/* Right Column — グループ一覧 */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <Card className="flex-1 flex flex-col overflow-hidden">
             <CardHeader className="py-1 px-3 flex-shrink-0">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Users className="h-4 w-4" />
                 グループ一覧（セット {currentSet}）
                 <span className="text-xs text-muted-foreground">
-                  学生: {currentGroups.reduce((sum, g) => sum + g.filter(p => !p.isTeacher).length, 0)}人 / 
-                  先生: {currentGroups.reduce((sum, g) => sum + g.filter(p => p.isTeacher).length, 0)}人
+                  学生: {currentGroups.reduce((s, g) => s + g.filter(p => !p.isTeacher).length, 0)}人 /
+                  先生: {currentGroups.reduce((s, g) => s + g.filter(p => p.isTeacher).length, 0)}人
                 </span>
               </CardTitle>
             </CardHeader>
@@ -471,22 +384,18 @@ export default function WorkshopApp() {
                   参加者を入力して「グループ作成」を押してください
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-1 h-full">
-                  {currentGroups.map((group, groupIndex) => (
-                    <div
-                      key={groupIndex}
-                      className={`border rounded p-1 bg-card flex flex-col justify-center items-center text-center ${getGroupClass(group)}`}
-                    >
-                      <h3 className="font-bold mb-1 text-lg">
-                        グループ {groupIndex + 1} ({group.length}人)
+                <div className={`grid gap-1.5 h-full ${currentGroups.length <= 2 ? "grid-cols-1" : "grid-cols-2"}`}>
+                  {currentGroups.map((group, gi) => (
+                    <div key={gi}
+                      className={`border-2 rounded-lg p-2 bg-card flex flex-col justify-center items-center text-center ${getGroupCardClass(group)}`}>
+                      <h3 className={`font-bold mb-2 ${getGroupHeaderSize()}`}>
+                        グループ {gi + 1}　<span className="text-muted-foreground text-base font-normal">({group.length}人)</span>
                       </h3>
-                      <div className="flex flex-wrap justify-center gap-0.5">
-                        {group.map((person, personIndex) => (
-                          <Badge
-                            key={personIndex}
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {group.map((person, pi) => (
+                          <Badge key={pi}
                             variant={person.isTeacher ? "default" : "secondary"}
-                            className="flex items-center gap-1 text-3xl"
-                          >
+                            className={`${getBadgeSize()} font-bold`}>
                             {person.name}
                           </Badge>
                         ))}
