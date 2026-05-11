@@ -112,8 +112,40 @@ export default function WorkshopApp() {
     const numGroups = groupingMode === "perGroup"
       ? Math.max(1, Math.ceil((students.length + teachers.length) / groupSize))
       : Math.max(1, totalGroupCount)
+
     const shuffledTeachers = shuffleArray(teachers)
-    setAllSetsGroups(Array.from({ length: numSets }, () => createBalancedGroups(students, shuffledTeachers, numGroups)))
+    const shuffledStudents = shuffleArray(students)
+
+    // 先生がいない or グループが1つの場合はランダム生成
+    if (teachers.length === 0 || numGroups <= 1) {
+      setAllSetsGroups(Array.from({ length: numSets }, () =>
+        createBalancedGroups(shuffledStudents, shuffledTeachers, numGroups)
+      ))
+      setCurrentSet(1); setTimeLeft(talkTime * 60); setIsRunning(false); setIsFinished(false)
+      return
+    }
+
+    // ラウンドロビン方式:
+    // 学生を numGroups 個の「ポッド」に均等分割（ランダム順）
+    // セット i では: ポッド[j] → グループ[(j + i) % numGroups] へ
+    // → numGroups セット回せば全学生が全先生のテーブルを一巡する
+    const pods: string[][] = Array.from({ length: numGroups }, () => [])
+    shuffledStudents.forEach((s, i) => pods[i % numGroups].push(s))
+
+    const sets: Group[][] = []
+    for (let setIdx = 0; setIdx < numSets; setIdx++) {
+      const groups: Group[] = Array.from({ length: numGroups }, () => [])
+      // 先生を固定位置に配置
+      shuffledTeachers.forEach((t, i) => groups[i % numGroups].push({ name: t, isTeacher: true }))
+      // ポッドをローテーション
+      pods.forEach((pod, j) => {
+        const dest = (j + setIdx) % numGroups
+        pod.forEach(s => groups[dest].push({ name: s, isTeacher: false }))
+      })
+      sets.push(groups)
+    }
+
+    setAllSetsGroups(sets)
     setCurrentSet(1); setTimeLeft(talkTime * 60); setIsRunning(false); setIsFinished(false)
   }
 
@@ -169,7 +201,24 @@ export default function WorkshopApp() {
 
   const getGroupHeaderSize = () => isPresentationMode ? "text-2xl" : "text-lg"
 
-  const getBadgeSize = () => isPresentationMode ? "text-4xl py-2 px-3" : "text-3xl"
+  // グループ数に応じてバッジサイズを調整（多いほど小さく）
+  const getBadgeSize = () => {
+    const n = currentGroups.length
+    if (!isPresentationMode) return "text-2xl"
+    if (n <= 2) return "text-4xl py-2 px-3"
+    if (n <= 4) return "text-3xl py-1 px-2"
+    return "text-2xl py-1 px-2"
+  }
+
+  // グループ数に応じた列数
+  const getGridCols = (n: number) => {
+    if (n <= 1) return "grid-cols-1"
+    if (n === 2) return "grid-cols-2"
+    if (n === 3) return "grid-cols-3"
+    if (n === 4) return "grid-cols-2"
+    if (n <= 6) return "grid-cols-3"
+    return "grid-cols-4"
+  }
 
   const getGroupCardClass = (group: Group) => {
     const chars = group.reduce((s, p) => s + p.name.length, 0)
@@ -385,11 +434,14 @@ export default function WorkshopApp() {
                   参加者を入力して「グループ作成」を押してください
                 </div>
               ) : (
-                <div className={`grid gap-1.5 h-full ${currentGroups.length <= 2 ? "grid-cols-1" : "grid-cols-2"}`}>
+                <div
+                  className={`grid gap-1.5 h-full ${getGridCols(currentGroups.length)}`}
+                  style={{ gridAutoRows: '1fr' }}
+                >
                   {currentGroups.map((group, gi) => (
                     <div key={gi}
-                      className={`border-2 rounded-lg p-2 bg-card flex flex-col justify-center items-center text-center ${getGroupCardClass(group)}`}>
-                      <h3 className={`font-bold mb-2 ${getGroupHeaderSize()}`}>
+                      className={`border-2 rounded-lg p-1.5 bg-card flex flex-col justify-center items-center text-center overflow-hidden ${getGroupCardClass(group)}`}>
+                      <h3 className={`font-bold mb-1 ${getGroupHeaderSize()}`}>
                         グループ {gi + 1}　<span className="text-muted-foreground text-base font-normal">({group.length}人)</span>
                       </h3>
                       <div className="flex flex-wrap justify-center gap-1">
