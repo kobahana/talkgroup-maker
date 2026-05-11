@@ -129,41 +129,59 @@ export default function WorkshopApp() {
     // 各学生が訪問済みの先生インデックスを追跡
     const visited: Set<number>[] = Array.from({ length: N }, () => new Set())
 
+    // ★ ペア履歴: met[i][j] = true なら学生iとjは同じグループになったことがある
+    const met: boolean[][] = Array.from({ length: N }, () => Array(N).fill(false))
+    const studentIdx = new Map(students.map((s, i) => [s, i]))
+
     const sets: Group[][] = []
 
     for (let setIdx = 0; setIdx < numSets; setIdx++) {
       const groups: Group[] = Array.from({ length: T }, () => [])
-      // 先生を固定位置に配置
       shuffledTeachers.forEach((t, i) => groups[i % T].push({ name: t, isTeacher: true }))
 
-      // 各グループの目標学生数（均等配分）
       const targets = Array.from({ length: T }, (_, i) =>
         Math.floor(N / T) + (i < N % T ? 1 : 0)
       )
       const counts = Array(T).fill(0)
       const assigned = Array(N).fill(-1)
 
-      // ★ 毎セット処理順をランダムに → 学生の組み合わせが毎回変わる
+      // ★ まだ多くの人に会えていない学生を先に処理（出会いを最大化しやすい）
       const order = shuffleArray(Array.from({ length: N }, (_, i) => i))
+        .sort((a, b) => {
+          const metA = met[a].filter(Boolean).length
+          const metB = met[b].filter(Boolean).length
+          return metA - metB // まだ少ない人を先に
+        })
 
-      // 第1パス: 未訪問の先生テーブルで空きがある場所に個別割り振り
+      // 第1パス: 先生ローテーション制約 + ペアカバレッジ最大化でグループ選択
       for (const si of order) {
-        // 未訪問かつ目標人数に達していないグループを候補にする
         const candidates = Array.from({ length: T }, (_, t) => t)
           .filter(t => !visited[si].has(t) && counts[t] < targets[t])
 
         if (candidates.length > 0) {
-          // 最も人数が少ないグループ群の中からランダム選択（バランス + ランダム性）
-          const minLoad = Math.min(...candidates.map(t => counts[t]))
-          const pool = candidates.filter(t => counts[t] === minLoad)
-          const chosen = pool[Math.floor(Math.random() * pool.length)]
+          // 各候補グループのスコア:
+          //   新規ペア数 × 1000 - 現在の人数（多い新規出会い優先、同点なら人数少ない方）
+          let bestScore = -Infinity
+          let best: number[] = []
+          for (const t of candidates) {
+            const newPairs = groups[t]
+              .filter(p => !p.isTeacher)
+              .reduce((sum, p) => {
+                const pi = studentIdx.get(p.name) ?? -1
+                return sum + (pi >= 0 && !met[si][pi] ? 1 : 0)
+              }, 0)
+            const score = newPairs * 1000 - counts[t]
+            if (score > bestScore) { bestScore = score; best = [t] }
+            else if (score === bestScore) best.push(t)
+          }
+          const chosen = best[Math.floor(Math.random() * best.length)]
           assigned[si] = chosen
           counts[chosen]++
           visited[si].add(chosen)
         }
       }
 
-      // 第2パス: 未割り当て学生を最も空いているグループへ（全先生訪問済み等の場合）
+      // 第2パス: 未割り当て学生（全先生訪問済み等）を最小グループへ
       for (let si = 0; si < N; si++) {
         if (assigned[si] === -1) {
           const t = Array.from({ length: T }, (_, i) => i)
@@ -174,9 +192,21 @@ export default function WorkshopApp() {
         }
       }
 
-      // グループへ学生を追加
       for (let si = 0; si < N; si++) {
         groups[assigned[si]].push({ name: students[si], isTeacher: false })
+      }
+
+      // ★ このセットで同じグループになったペアを記録
+      for (let t = 0; t < T; t++) {
+        const members = groups[t]
+          .filter(p => !p.isTeacher)
+          .map(p => studentIdx.get(p.name) ?? -1)
+          .filter(i => i >= 0)
+        for (let a = 0; a < members.length; a++)
+          for (let b = a + 1; b < members.length; b++) {
+            met[members[a]][members[b]] = true
+            met[members[b]][members[a]] = true
+          }
       }
 
       sets.push(groups)
